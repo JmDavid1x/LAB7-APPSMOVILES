@@ -1,68 +1,44 @@
 # Laboratorio 7 · Fotos en el muro
 
-Punto de partida del **Laboratorio 7**: el muro del Laboratorio 6, ya resuelto, al que le faltan las fotos. La guía paso a paso está en el visor del curso, en la lección *Laboratorio 7 · Fotos en el muro*.
+**Jose David Mayor López** · Aplicaciones Móviles · Universidad Icesi
 
-- **Parte 1 · Foto de perfil.** Subir la foto, guardar su path en `profiles` y mostrarla en el perfil y junto a cada post.
-- **Parte 2 · Posts con imagen (avanzada).** El composer adjunta una foto, la muestra antes de publicar y el muro la pinta bajo el texto.
+El muro del Laboratorio 6, ahora con fotos: cada persona sube su foto de perfil desde la galería, y los posts pueden llevar una imagen.
 
-Las fotos de perfil van en un **bucket público**, `avatars`: se muestran con una URL fija. Las de los posts van en un **bucket privado**, `post-images`: solo quien inició sesión las ve, a través de URLs firmadas.
+Las fotos de perfil van en un **bucket público**, `avatars`, y se muestran con una URL fija. Las imágenes de los posts van en un **bucket privado**, `post-images`, y solo quien inició sesión las ve, con URLs firmadas que duran una hora.
+
+## Lo que se hizo
+
+### Supabase
+
+- Conexión con el proyecto propio de Supabase: URL y publishable key en `lib/main.dart`, y carpeta `supabase/` con el `config.toml` del curso.
+- Bucket público `avatars` y bucket privado `post-images`, los dos de máximo 2 MiB y solo `jpeg`, `png` y `webp`.
+- Migraciones `create_avatars` y `create_post_images`: las columnas `profiles.avatar_path` y `posts.image_path`, y una política por bucket para los usuarios autenticados.
+
+### Parte 1 · Foto de perfil
+
+- **`DevicePhotoDataSource`**: abre la galería con `image_picker` (512 × 512, calidad 80) y devuelve un `PickedPhoto`.
+- **`SupabaseAvatarDataSource`**: sube la foto a `avatars/<id del usuario>/<uuid>.<extensión>` y borra la anterior.
+- **`AvatarRepositoryImpl`**: delega en los dos data sources.
+- **`ChangeAvatarUseCase`**: elige la foto, rechaza las de más de 2 MB, sube la nueva, actualiza el perfil y al final borra la vieja. Si la persona cierra la galería sin elegir, no pasa nada.
+- **`SupabaseProfileDataSource`**: `updateAvatarPath` y la URL pública de la foto en `getProfile`.
+- **`SupabasePostDataSource`**: trae el `avatar_path` del autor y arma su URL pública, así cada post muestra la foto de quien lo escribió, o su inicial si no tiene foto.
+- **`FeedBloc`**: muestra un indicador mientras sube, un `SnackBar` si falla, y recarga el muro con la foto nueva.
+- **`HomeScreen`**: el botón de la cámara del perfil lanza `AvatarChangeRequested`.
+
+### Parte 2 · Posts con imagen
+
+- **`SupabasePostImageDataSource`**: sube a `post-images` y pide URLs firmadas de una hora.
+- **`PostRepositoryImpl`**: `pickImage`, `uploadImage` e `imageUrl`.
+- **`SupabasePostDataSource`**: guarda `image_path` al crear el post y lo lee en el muro.
+- **`PickPostImageUseCase`**: elige la imagen y rechaza las de más de 2 MB.
+- **`PublishPostUseCase`**: un post puede ser texto, foto o las dos cosas. La foto se sube antes de crear el post.
+- **`GetFeedUseCase` y `GetMyPostsUseCase`**: completan cada post con la URL firmada de su imagen, todas al mismo tiempo con `Future.wait`.
+- **`ComposeBloc`**: adjunta, quita y publica la foto.
+- **`ComposeScreen`**: el botón *Agregar foto* lanza `ComposePhotoRequested`.
 
 ## Cómo correrlo
-
-1. Pon la `Project URL` y la `publishable key` de **tu** proyecto de Supabase en `lib/main.dart`.
-2. Conecta la carpeta con tu proyecto de Supabase, el mismo del Laboratorio 6:
-
-```bash
-npx supabase init
-npx supabase link --project-ref TU_IDENTIFICADOR
-npx supabase migration fetch --linked
-```
-
-   Reemplaza el `config.toml` que crea `init` por el del curso, y sigue los pasos del laboratorio para los buckets y las migraciones nuevas.
-3. Corre la app:
 
 ```bash
 flutter pub get
 flutter run
 ```
-
-## Qué ya funciona
-
-- **Todo el Laboratorio 6.** Registro, inicio de sesión, el muro paginado, los «me gusta» y publicar texto.
-- **Las dependencias y los permisos.** `image_picker` y `uuid` en el `pubspec.yaml`, los textos de permiso en `ios/Runner/Info.plist` y el permiso de archivos en los `entitlements` de macOS.
-- **Toda la interfaz.** `Avatar`, el botón de cámara de `ProfilePage`, el botón *Agregar foto*, la vista previa y *Quitar foto* de `ComposeScreen`, y la imagen de `PostCard`. Los dos botones de foto todavía no lanzan su evento: `() {}`.
-- **Las entidades y los contratos.** `PickedPhoto`, `Profile` con `avatarPath` y `avatarUrl`, `Post` con `authorAvatarUrl`, `imagePath` e `imageUrl`, y los contratos `AvatarRepository`, `ProfileRepository` y `PostRepository` completos.
-- **Los eventos y los estados.** `AvatarChangeRequested`, `ComposePhotoRequested`, `ComposePhotoRemoved`, `FeedState.avatarStatus` y `ComposeState.photo`, con sus `copyWith`.
-
-Los métodos nuevos de cada capa ya existen con su firma, pero su cuerpo es `throw UnimplementedError()`. Los `on` nuevos de los Bloc solo imprimen el evento que reciben. Cuando conectes los botones, verás en la consola:
-
-```text
-FeedBloc recibió AvatarChangeRequested()
-ComposeBloc recibió ComposePhotoRequested()
-```
-
-## Qué te toca
-
-**Parte 1**
-
-- `avatar/domain/usecases/change_avatar_usecase.dart`: `call`.
-- `avatar/data/source/device_photo_data_source.dart`: `pick`.
-- `avatar/data/source/supabase_avatar_data_source.dart`: `upload` con nombre aleatorio y `remove`.
-- `avatar/data/repository/avatar_repository_impl.dart`: los tres métodos, delegando.
-- `auth/data/source/supabase_profile_data_source.dart` y su `Impl`: `updateAvatarPath`, y la URL pública en `getProfile`.
-- `posts/data/source/supabase_post_data_source.dart`: `avatar_path` en el select y su URL pública en `_toPost`.
-- `home/ui/bloc/feed_bloc.dart`: el `on` de `AvatarChangeRequested`.
-- `home/ui/screens/home_screen.dart`: que `onChangePhoto` lance `AvatarChangeRequested`.
-
-**Parte 2**
-
-- `posts/domain/usecases/pick_post_image_usecase.dart`: `call`.
-- `posts/domain/usecases/publish_post_usecase.dart`: subir la foto antes de crear el post.
-- `posts/data/source/supabase_post_image_data_source.dart`: `upload` y `signedUrl`.
-- `posts/data/repository/post_repository_impl.dart`: `pickImage`, `uploadImage` e `imageUrl`.
-- `posts/data/source/supabase_post_data_source.dart`: `image_path` en `create`, en el select y en `_toPost`.
-- `posts/domain/usecases/get_feed_usecase.dart` y `get_my_posts_usecase.dart`: completar cada post con la URL firmada de su imagen.
-- `compose/ui/bloc/compose_bloc.dart`: los `on` de la foto, y pasar `state.photo` al publicar.
-- `compose/ui/screens/compose_screen.dart`: que *Agregar foto* lance `ComposePhotoRequested`.
-
-`flutter test` comprueba que la interfaz lanza los eventos correctos.
